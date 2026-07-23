@@ -3,7 +3,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-let version = "0.1.0"
+let version = "0.2.0"
 let usage = """
 usage: ahkmac [--check] [--help] [--version] [config-path]
 
@@ -22,6 +22,13 @@ func loadConfig(atPath path: String) throws -> Config {
 
 func fail(_ message: String) -> Never {
     log(message)
+    if isatty(STDERR_FILENO) == 0 {
+        // Launched from Finder: stderr goes nowhere, so surface the error visibly.
+        _ = CFUserNotificationDisplayAlert(0, CFOptionFlags(kCFUserNotificationStopAlertLevel),
+                                           nil, nil, nil,
+                                           "ahkmac" as CFString, message as CFString,
+                                           nil, nil, nil, nil)
+    }
     exit(1)
 }
 
@@ -54,11 +61,11 @@ log("\(configPath): \(config.keymaps.count) keymaps, \(config.hotstrings.count) 
 if checkOnly { exit(0) }
 
 let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-guard AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary) else {
-    fail("""
-    accessibility permission required. Grant it in \
-    System Settings > Privacy & Security > Accessibility, then run ahkmac again.
-    """)
+if !AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary) {
+    // Poll instead of exiting so an app-bundle launch starts working right
+    // after the user grants the permission, without a manual relaunch.
+    log("waiting for accessibility permission (System Settings > Privacy & Security > Accessibility)…")
+    while !AXIsProcessTrusted() { sleep(2) }
 }
 
 let remapper = Remapper(config: config, configPath: configPath)

@@ -32,10 +32,28 @@ cp examples/ahkmac.conf ~/.config/ahkmac.conf
 ```
 
 ahkmac needs the **Accessibility** permission
-(System Settings → Privacy & Security → Accessibility). The permission is
-attached to the app that launches ahkmac — your terminal, typically.
+(System Settings → Privacy & Security → Accessibility). When run from a
+terminal, the permission is attached to the terminal app; to avoid that,
+use the app bundle below.
 
 Reload the config without restarting: `pkill -HUP ahkmac`.
+
+## Run as an app (no terminal)
+
+Download `ahkmac.app.zip` from Releases, unzip, and drop `ahkmac.app` into
+`/Applications`. Double-click to run — it stays in the background (no Dock
+icon) and the Accessibility permission is granted to **ahkmac** itself,
+not your terminal.
+
+- First launch: the app is unsigned, so right-click → Open (on macOS 15
+  you may also need System Settings → Privacy & Security → Open Anyway).
+- Grant the Accessibility prompt; ahkmac starts working within a couple
+  of seconds — no relaunch needed.
+- Config errors show up as dialog boxes instead of terminal output.
+- Start at login: System Settings → General → Login Items → add ahkmac.
+- Quit: Activity Monitor, or `pkill ahkmac`.
+- After upgrading, re-tick ahkmac in the Accessibility list if hotkeys
+  stop working (the ad-hoc code signature changes between releases).
 
 ## Config reference
 

@@ -35,7 +35,14 @@ jobs:
         run: |
           swift build -c release --arch arm64 --arch x86_64
           cp .build/apple/Products/Release/ahkmac .
+      - name: Assemble app bundle
+        run: |
+          mkdir -p ahkmac.app/Contents/MacOS
+          cp ahkmac ahkmac.app/Contents/MacOS/ahkmac
+          sed "s/__VERSION__/${GITHUB_REF_NAME#v}/g" packaging/Info.plist > ahkmac.app/Contents/Info.plist
+          codesign --force --sign - ahkmac.app
+          ditto -c -k --keepParent ahkmac.app ahkmac.app.zip
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" ahkmac --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" ahkmac ahkmac.app.zip --title "$GITHUB_REF_NAME" --generate-notes
