@@ -1,4 +1,82 @@
 public enum ConfigParser {
+    /// Parses a whole config file. Rule shapes:
+    ///   chord :: chord              key remap
+    ///   "trigger" => "replacement"  hotstring, fires on an end char
+    ///   *"trigger" => "replacement" hotstring, fires immediately
+    public static func parse(_ text: String) throws -> Config {
+        var keymaps: [KeymapRule] = []
+        var hotstrings: [HotstringRule] = []
+        var keymapLines: [Chord: Int] = [:]
+        var triggerLines: [String: Int] = [:]
+
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, rawLine) in lines.enumerated() {
+            let lineNo = index + 1
+            let line = trim(stripComment(rawLine))
+            if line.isEmpty { continue }
+
+            if line.first == "\"" || line.first == "*" {
+                let rule = try parseHotstring(line, lineNo: lineNo)
+                if let first = triggerLines[rule.trigger] {
+                    throw ConfigError(line: lineNo,
+                        message: "duplicate trigger \"\(rule.trigger)\" (first defined on line \(first))")
+                }
+                triggerLines[rule.trigger] = lineNo
+                hotstrings.append(rule)
+            } else if line.contains("::") {
+                let rule = try parseKeymap(line, lineNo: lineNo)
+                if let first = keymapLines[rule.source] {
+                    throw ConfigError(line: lineNo,
+                        message: "duplicate keymap source (first defined on line \(first))")
+                }
+                keymapLines[rule.source] = lineNo
+                keymaps.append(rule)
+            } else {
+                throw ConfigError(line: lineNo,
+                    message: "unrecognized rule; expected 'chord :: chord' or '\"trigger\" => \"replacement\"'")
+            }
+        }
+        return Config(keymaps: keymaps, hotstrings: hotstrings)
+    }
+
+    static func parseKeymap(_ line: Substring, lineNo: Int) throws -> KeymapRule {
+        guard let separator = line.firstRange(of: "::"),
+              line[separator.upperBound...].firstRange(of: "::") == nil else {
+            throw ConfigError(line: lineNo, message: "expected exactly one '::'")
+        }
+        let source = try parseChord(line[..<separator.lowerBound], lineNo: lineNo)
+        let target = try parseChord(line[separator.upperBound...], lineNo: lineNo)
+        return KeymapRule(source: source, target: target, line: lineNo)
+    }
+
+    static func parseHotstring(_ line: Substring, lineNo: Int) throws -> HotstringRule {
+        var rest = line
+        var immediate = false
+        if rest.first == "*" {
+            immediate = true
+            rest = trimLeading(rest.dropFirst())
+        }
+        let (trigger, afterTrigger) = try parseQuoted(rest, lineNo: lineNo)
+        if trigger.isEmpty {
+            throw ConfigError(line: lineNo, message: "empty trigger")
+        }
+        if let bad = trigger.first(where: { HotstringRule.endChars.contains($0) }) {
+            throw ConfigError(line: lineNo,
+                message: "trigger must not contain end character '\(bad)'")
+        }
+        var rest2 = trimLeading(afterTrigger)
+        guard rest2.hasPrefix("=>") else {
+            throw ConfigError(line: lineNo, message: "expected '=>' after trigger")
+        }
+        rest2 = trimLeading(rest2.dropFirst(2))
+        let (replacement, tail) = try parseQuoted(rest2, lineNo: lineNo)
+        if !trim(tail).isEmpty {
+            throw ConfigError(line: lineNo, message: "unexpected content after replacement")
+        }
+        return HotstringRule(trigger: trigger, replacement: replacement,
+                             immediate: immediate, line: lineNo)
+    }
+
     /// Cuts the line at the first '#' that is not inside a quoted string.
     static func stripComment(_ line: Substring) -> Substring {
         var inQuotes = false
