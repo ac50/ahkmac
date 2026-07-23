@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (release)
+        run: swift build -c release
+      - name: Run unit tests
+        run: swift test --parallel
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ahkmac-${{ github.sha }}
+          path: .build/release/ahkmac
