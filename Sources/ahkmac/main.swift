@@ -3,7 +3,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-let version = "0.3.0"
+let version = "0.3.1"
 let usage = """
 usage: ahkmac [--check] [--help] [--version] [config-path]
 
@@ -65,6 +65,25 @@ if !AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary) {
     // Poll instead of exiting so an app-bundle launch starts working right
     // after the user grants the permission, without a manual relaunch.
     log("waiting for accessibility permission (System Settings > Privacy & Security > Accessibility)…")
+    if isatty(STDERR_FILENO) == 0 {
+        // Launched from Finder: without this dialog the wait is invisible.
+        // A stale entry happens after upgrades — the ad-hoc signature
+        // changes per release, and only remove-and-re-add rebinds it.
+        _ = CFUserNotificationDisplayAlert(0, CFOptionFlags(kCFUserNotificationNoteAlertLevel),
+                                           nil, nil, nil,
+                                           "ahkmac" as CFString,
+                                           """
+                                           ahkmac needs the Accessibility permission and will start \
+                                           working automatically once it is granted:
+
+                                           System Settings > Privacy & Security > Accessibility
+
+                                           If ahkmac is already in the list but nothing happens \
+                                           (typical after an upgrade), remove it with the "-" \
+                                           button and add it back.
+                                           """ as CFString,
+                                           nil, nil, nil, nil)
+    }
     while !AXIsProcessTrusted() { sleep(2) }
 }
 

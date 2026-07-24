@@ -52,8 +52,23 @@ not your terminal.
 - Config errors show up as dialog boxes instead of terminal output.
 - Start at login: System Settings → General → Login Items → add ahkmac.
 - Quit: Activity Monitor, or `pkill ahkmac`.
-- After upgrading, re-tick ahkmac in the Accessibility list if hotkeys
-  stop working (the ad-hoc code signature changes between releases).
+
+### Nothing happens after launch?
+
+Almost always a stale Accessibility grant: the entry in the list no
+longer matches the binary (typical after an upgrade — the ad-hoc code
+signature changes between releases, and macOS also relocates unsigned
+apps launched straight from Downloads). ahkmac then waits silently for
+a permission that never arrives.
+
+**Fix: in System Settings → Privacy & Security → Accessibility, remove
+ahkmac with the "−" button and add it back** (toggling the checkbox is
+not always enough), then relaunch. To see what ahkmac is doing, run it
+from a terminal — it prints whether it is running or still waiting:
+
+```sh
+/Applications/ahkmac.app/Contents/MacOS/ahkmac
+```
 
 ## Config reference
 
