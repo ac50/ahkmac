@@ -41,12 +41,47 @@ final class HotstringEngineTests: XCTestCase {
                        Replacement(backspaces: 1, text: "user@example.com", repostTrigger: false))
     }
 
-    func testEndCharWithoutMatchResetsBuffer() {
+    func testEndCharDoesNotCompleteSplitImmediateTrigger() {
         let engine = engine([mail])
         _ = type("@", into: engine)
         XCTAssertNil(engine.handleCharacter(" "))
-        // buffer was reset, so a single further "@" must not fire
+        // the space sits between the two @s in the buffer, so no fire
         XCTAssertNil(engine.handleCharacter("@"))
+    }
+
+    func testPunctuationInsideTrigger() {
+        let email = HotstringRule(trigger: "e-mail", replacement: "yuan@example.com",
+                                  immediate: false, line: 1)
+        let engine = engine([email])
+        XCTAssertEqual(type("e-mail", into: engine), Array(repeating: nil, count: 6))
+        XCTAssertEqual(engine.handleCharacter(" "),
+                       Replacement(backspaces: 6, text: "yuan@example.com", repostTrigger: true))
+    }
+
+    func testImmediateTriggerEndingInPunctuation() {
+        let dotted = HotstringRule(trigger: "btw.", replacement: "by the way.",
+                                   immediate: true, line: 1)
+        let engine = engine([dotted])
+        _ = type("btw", into: engine)
+        XCTAssertEqual(engine.handleCharacter("."),
+                       Replacement(backspaces: 3, text: "by the way.", repostTrigger: false))
+    }
+
+    func testEndCharModeWinsOverImmediateOnSameKeystroke() {
+        let immediateTw = HotstringRule(trigger: "tw.", replacement: "IMMEDIATE",
+                                        immediate: true, line: 2)
+        let engine = engine([btw, immediateTw])
+        _ = type("btw", into: engine)
+        XCTAssertEqual(engine.handleCharacter("."),
+                       Replacement(backspaces: 3, text: "by the way", repostTrigger: true))
+    }
+
+    func testBackspaceRepairsBufferAcrossEndChar() {
+        let engine = engine([btw])
+        _ = type("bt.", into: engine)
+        engine.handleBackspace()
+        XCTAssertNil(engine.handleCharacter("w"))
+        XCTAssertEqual(engine.handleCharacter(" ")?.text, "by the way")
     }
 
     func testBackspaceRepairsBuffer() {

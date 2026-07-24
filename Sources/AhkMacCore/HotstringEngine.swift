@@ -16,7 +16,10 @@ public struct Replacement: Equatable {
 
 /// Tracks recently typed characters and decides when a hotstring fires.
 /// Matching is by suffix (a trigger also fires mid-word, like AHK's `?`
-/// option); the longest matching trigger wins.
+/// option); the longest matching trigger wins. End chars are ordinary
+/// buffer content — triggers may contain escaped punctuation ("e\-mail")
+/// — but they additionally check end-char-mode triggers first; when the
+/// same keystroke could fire both modes, end-char mode wins.
 public final class HotstringEngine {
     private let rules: [HotstringRule]
     private let maxTriggerLength: Int
@@ -30,27 +33,29 @@ public final class HotstringEngine {
     /// Feed one typed character; nil means "let the event through".
     public func handleCharacter(_ ch: Character) -> Replacement? {
         if HotstringRule.endChars.contains(ch) {
-            defer { buffer.removeAll() }
             if let rule = longestMatch(immediate: false) {
+                buffer.removeAll()
                 return Replacement(backspaces: rule.trigger.count,
                                    text: rule.replacement, repostTrigger: true)
             }
-            return nil
-        }
-        guard Self.isTypable(ch) else {
+        } else if !Self.isTypable(ch) {
             buffer.removeAll()
             return nil
         }
-        buffer.append(ch)
-        if buffer.count > maxTriggerLength {
-            buffer.removeFirst(buffer.count - maxTriggerLength)
-        }
+        append(ch)
         if let rule = longestMatch(immediate: true) {
             buffer.removeAll()
             return Replacement(backspaces: rule.trigger.count - 1,
                                text: rule.replacement, repostTrigger: false)
         }
         return nil
+    }
+
+    private func append(_ ch: Character) {
+        buffer.append(ch)
+        if buffer.count > maxTriggerLength {
+            buffer.removeFirst(buffer.count - maxTriggerLength)
+        }
     }
 
     public func handleBackspace() {

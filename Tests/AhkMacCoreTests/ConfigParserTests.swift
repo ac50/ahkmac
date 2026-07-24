@@ -76,8 +76,25 @@ final class ConfigParserTests: XCTestCase {
         }
         XCTAssertThrowsError(try ConfigParser.parse("\"a b\" => \"y\"")) {
             XCTAssertEqual($0 as? ConfigError,
-                           ConfigError(line: 1, message: "trigger must not contain end character ' '"))
+                           ConfigError(line: 1, message: "trigger must not contain whitespace"))
         }
+    }
+
+    func testUnescapedEndCharInTriggerRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("\"e-mail\" => \"y\"")) {
+            XCTAssertEqual($0 as? ConfigError,
+                           ConfigError(line: 1, message: "unescaped end character '-' in trigger (write '\\-')"))
+        }
+    }
+
+    func testEscapedEndCharInTriggerAccepted() throws {
+        let config = try ConfigParser.parse(#""e\-mail" => "yuan@example.com""#)
+        XCTAssertEqual(config.hotstrings.first?.trigger, "e-mail")
+
+        let immediate = try ConfigParser.parse(#"*"btw\." => "by the way.""#)
+        XCTAssertEqual(immediate.hotstrings.first,
+                       HotstringRule(trigger: "btw.", replacement: "by the way.",
+                                     immediate: true, line: 1))
     }
 
     func testStarWithoutQuoteRejected() {

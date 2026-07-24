@@ -31,13 +31,15 @@ public struct HotstringRule: Hashable {
         self.line = line
     }
 
-    /// Characters that end a word: they fire end-char-mode hotstrings and
-    /// may never appear inside a trigger (the recognition buffer resets on
-    /// every one of them, so such a trigger could never match).
-    public static let endChars: Set<Character> = [
-        " ", "\t", "\r", "\n", "-", "(", ")", "[", "]", "{", "}",
+    /// Characters that end a word and fire end-char-mode hotstrings.
+    /// Punctuation end chars may appear inside a trigger when escaped
+    /// (e.g. "e\-mail"); whitespace never may.
+    public static let punctuationEndChars: Set<Character> = [
+        "-", "(", ")", "[", "]", "{", "}",
         "'", ":", ";", "\"", "/", "\\", ",", ".", "?", "!",
     ]
+    public static let whitespaceEndChars: Set<Character> = [" ", "\t", "\r", "\n"]
+    public static let endChars = punctuationEndChars.union(whitespaceEndChars)
 }
 
 public struct Config: Equatable {

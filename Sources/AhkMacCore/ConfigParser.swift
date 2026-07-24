@@ -56,14 +56,20 @@ public enum ConfigParser {
             immediate = true
             rest = trimLeading(rest.dropFirst())
         }
-        let (trigger, afterTrigger) = try parseQuoted(rest, lineNo: lineNo)
-        if trigger.isEmpty {
+        let (triggerChars, afterTrigger) = try parseQuotedMarked(rest, lineNo: lineNo)
+        if triggerChars.isEmpty {
             throw ConfigError(line: lineNo, message: "empty trigger")
         }
-        if let bad = trigger.first(where: { HotstringRule.endChars.contains($0) }) {
-            throw ConfigError(line: lineNo,
-                message: "trigger must not contain end character '\(bad)'")
+        for qc in triggerChars {
+            if HotstringRule.whitespaceEndChars.contains(qc.value) {
+                throw ConfigError(line: lineNo, message: "trigger must not contain whitespace")
+            }
+            if !qc.escaped && HotstringRule.punctuationEndChars.contains(qc.value) {
+                throw ConfigError(line: lineNo,
+                    message: "unescaped end character '\(qc.value)' in trigger (write '\\\(qc.value)')")
+            }
         }
+        let trigger = String(triggerChars.map(\.value))
         var rest2 = trimLeading(afterTrigger)
         guard rest2.hasPrefix("=>") else {
             throw ConfigError(line: lineNo, message: "expected '=>' after trigger")
@@ -110,39 +116,53 @@ public enum ConfigParser {
         return text
     }
 
+    /// One decoded character plus whether it was written as an escape —
+    /// escaped punctuation end chars are allowed inside triggers.
+    struct QuotedChar {
+        let value: Character
+        let escaped: Bool
+    }
+
     /// Parses a double-quoted string starting at `input`'s first character.
-    /// Supported escapes: \" \\ \n \t. Returns the decoded value and the
-    /// remainder after the closing quote.
-    static func parseQuoted(_ input: Substring, lineNo: Int) throws -> (value: String, rest: Substring) {
+    /// Escapes: \" \\ \n \t plus every punctuation end char (\- \. \! …),
+    /// which decodes to itself. Returns the remainder after the closing quote.
+    static func parseQuotedMarked(_ input: Substring, lineNo: Int) throws -> (chars: [QuotedChar], rest: Substring) {
         var rest = input
         guard rest.first == "\"" else {
             throw ConfigError(line: lineNo, message: "expected opening quote")
         }
         rest = rest.dropFirst()
-        var value = ""
+        var chars: [QuotedChar] = []
         while let ch = rest.first {
             rest = rest.dropFirst()
             switch ch {
             case "\"":
-                return (value, rest)
+                return (chars, rest)
             case "\\":
                 guard let escape = rest.first else {
                     throw ConfigError(line: lineNo, message: "unterminated string")
                 }
                 rest = rest.dropFirst()
                 switch escape {
-                case "\"": value.append("\"")
-                case "\\": value.append("\\")
-                case "n": value.append("\n")
-                case "t": value.append("\t")
+                case "n": chars.append(QuotedChar(value: "\n", escaped: true))
+                case "t": chars.append(QuotedChar(value: "\t", escaped: true))
                 default:
-                    throw ConfigError(line: lineNo, message: "unknown escape '\\\(escape)'")
+                    // \" and \\ are members of punctuationEndChars too.
+                    guard HotstringRule.punctuationEndChars.contains(escape) else {
+                        throw ConfigError(line: lineNo, message: "unknown escape '\\\(escape)'")
+                    }
+                    chars.append(QuotedChar(value: escape, escaped: true))
                 }
             default:
-                value.append(ch)
+                chars.append(QuotedChar(value: ch, escaped: false))
             }
         }
         throw ConfigError(line: lineNo, message: "unterminated string")
+    }
+
+    static func parseQuoted(_ input: Substring, lineNo: Int) throws -> (value: String, rest: Substring) {
+        let (chars, rest) = try parseQuotedMarked(input, lineNo: lineNo)
+        return (String(chars.map(\.value)), rest)
     }
 
     /// Parses "mod+mod+key" (any number of modifiers, case-insensitive).

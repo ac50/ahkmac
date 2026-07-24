@@ -69,6 +69,29 @@ source :: target                 key remap, chord = [mod+]*key
   `enter`/`return` `esc` `delete` `forwarddelete` `home` `end` `pageup`
   `pagedown` `f1`–`f20` `minus` `equal` `leftbracket` `rightbracket`
   `backslash` `semicolon` `quote` `comma` `period` `slash` `grave`
-- String escapes: `\"` `\\` `\n` `\t`
+- String escapes: `\"` `\\` `\n` `\t`, plus `\-` `\.` `\!` … for any
+  end character (see below)
 - Errors are reported with line numbers; duplicate sources/triggers are
   rejected.
+
+### End characters and escaping
+
+These characters end a word and make default-mode hotstrings fire:
+
+```
+space  tab  enter    - ( ) [ ] { } ' : ; " / \ , . ? !
+```
+
+Because they *mean* "fire now", writing one **unescaped** inside a trigger
+is almost always a mistake, so the parser rejects it:
+
+```
+"e-mail" => "…"     error: unescaped end character '-' in trigger (write '\-')
+"e\-mail" => "…"    OK — fires after e-mail + end char
+*"btw\." => "…"     OK — fires the moment you type the final '.'
+```
+
+Whitespace can never appear in a trigger. A default-mode trigger that
+*ends* with punctuation (like `"btw\."`) still needs one more end char
+after it to fire — if you want it to fire on the `.` itself, use the
+immediate `*` form as shown above.
