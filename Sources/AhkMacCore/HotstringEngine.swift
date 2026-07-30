@@ -29,10 +29,21 @@ public final class HotstringEngine {
     private let rules: [HotstringRule]
     private let maxTriggerLength: Int
     private var buffer: [Character] = []
+    private var activeApp: String?
 
     public init(rules: [HotstringRule]) {
         self.rules = rules
         self.maxTriggerLength = rules.map { $0.trigger.count }.max() ?? 0
+    }
+
+    /// The frontmost app's bundle ID (any case). Changing apps clears the
+    /// buffer — a half-typed word in one app must not fire in another.
+    public func setActiveApp(_ app: String?) {
+        let normalized = app?.lowercased()
+        if normalized != activeApp {
+            activeApp = normalized
+            buffer.removeAll()
+        }
     }
 
     /// Feed one typed character; nil means "let the event through".
@@ -81,9 +92,11 @@ public final class HotstringEngine {
     private func longestMatch(immediate: Bool) -> HotstringRule? {
         var best: HotstringRule?
         for rule in rules where rule.immediate == immediate
+            && rule.scope.matches(app: activeApp)
             && rule.trigger.count <= buffer.count
             && buffer.suffix(rule.trigger.count).elementsEqual(rule.trigger) {
-            if best == nil || rule.trigger.count > best!.trigger.count {
+            guard let current = best else { best = rule; continue }
+            if (rule.trigger.count, rule.scope.level) > (current.trigger.count, current.scope.level) {
                 best = rule
             }
         }

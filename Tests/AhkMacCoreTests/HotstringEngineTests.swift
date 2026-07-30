@@ -143,6 +143,57 @@ final class HotstringEngineTests: XCTestCase {
         XCTAssertFalse(HotstringEngine.isTypable("\u{F704}"))
     }
 
+    // MARK: app scopes
+
+    func testScopeFiltersTriggers() {
+        let engine = HotstringEngine(rules: [
+            HotstringRule(trigger: "gm", action: .text("gmail.com"), immediate: true,
+                          scope: .apps(["com.google.chrome"]), line: 1),
+        ])
+        engine.setActiveApp("com.apple.mail")
+        for ch in "gm" { XCTAssertNil(engine.handleCharacter(ch)) }   // 不在 Chrome,不触发
+        engine.setActiveApp("com.google.chrome")
+        for ch in "g" { XCTAssertNil(engine.handleCharacter(ch)) }
+        XCTAssertEqual(engine.handleCharacter("m"),
+                       Firing(backspaces: 1, output: .text("gmail.com", repost: false)))
+    }
+
+    func testAppSwitchClearsBuffer() {
+        let engine = HotstringEngine(rules: [
+            HotstringRule(trigger: "btw", action: .text("by the way"), immediate: true, scope: .global, line: 1),
+        ])
+        engine.setActiveApp("com.a.b")
+        for ch in "bt" { XCTAssertNil(engine.handleCharacter(ch)) }
+        engine.setActiveApp("com.c.d")                                // 切换应用
+        XCTAssertNil(engine.handleCharacter("w"))                     // 缓冲已清,不触发
+        engine.setActiveApp("COM.C.D")
+        XCTAssertNil(engine.handleCharacter("x"))                     // 仅大小写差异,不算切换 —— 缓冲保留
+    }
+
+    func testSpecificScopeBeatsGlobalOnSameTrigger() {
+        let engine = HotstringEngine(rules: [
+            HotstringRule(trigger: "sig", action: .text("global"), immediate: true, scope: .global, line: 1),
+            HotstringRule(trigger: "sig", action: .text("chrome"), immediate: true,
+                          scope: .apps(["com.google.chrome"]), line: 2),
+        ])
+        engine.setActiveApp("com.google.chrome")
+        for ch in "si" { XCTAssertNil(engine.handleCharacter(ch)) }
+        XCTAssertEqual(engine.handleCharacter("g"),
+                       Firing(backspaces: 2, output: .text("chrome", repost: false)))
+    }
+
+    func testLongerTriggerStillBeatsScopeTier() {
+        let engine = HotstringEngine(rules: [
+            HotstringRule(trigger: "sig", action: .text("chrome"), immediate: true,
+                          scope: .apps(["com.google.chrome"]), line: 1),
+            HotstringRule(trigger: "absig", action: .text("global"), immediate: true, scope: .global, line: 2),
+        ])
+        engine.setActiveApp("com.google.chrome")
+        for ch in "absi" { XCTAssertNil(engine.handleCharacter(ch)) }
+        XCTAssertEqual(engine.handleCharacter("g"),
+                       Firing(backspaces: 4, output: .text("global", repost: false)))
+    }
+
     // MARK: macro targets
 
     func testMacroHotstringImmediate() {
