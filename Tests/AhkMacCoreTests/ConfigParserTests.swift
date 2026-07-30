@@ -107,4 +107,110 @@ final class ConfigParserTests: XCTestCase {
         let config = try ConfigParser.parse(#""sig" => "Bye!\n-- yt :: #1""#)
         XCTAssertEqual(config.hotstrings.first?.action, .text("Bye!\n-- yt :: #1"))
     }
+
+    // MARK: sections, sets, scoped conflict detection
+
+    func testScopedRules() throws {
+        let config = try ConfigParser.parse("""
+        apps editors = com.microsoft.VSCode, com.apple.dt.Xcode
+        [com.google.Chrome]
+        opt+j :: down
+        "gm" => "gmail.com"
+        [editors]
+        opt+b :: cmd+left
+        [!editors]
+        opt+e :: cmd+right
+        [*]
+        opt+k :: up
+        """)
+        let editors = ["com.microsoft.vscode", "com.apple.dt.xcode"]
+        XCTAssertEqual(config.keymaps.map(\.scope),
+                       [.apps(["com.google.chrome"]), .apps(editors), .exceptApps(editors), .global])
+        XCTAssertEqual(config.hotstrings.map(\.scope), [.apps(["com.google.chrome"])])
+    }
+
+    func testSetDeclaredAfterUseIsFine() throws {
+        let config = try ConfigParser.parse("[eds]\nopt+j :: down\n[*]\napps eds = com.a.b\n")
+        XCTAssertEqual(config.keymaps.first?.scope, .apps(["com.a.b"]))
+    }
+
+    func testUnknownSetRejectedEvenInEmptySection() {
+        XCTAssertThrowsError(try ConfigParser.parse("[nope]\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 1, message: "unknown apps set 'nope' (bundle IDs contain a '.')"))
+        }
+    }
+
+    func testScopeConflictMatrix() throws {
+        // 同区块重复 → 报错(沿用旧文案)
+        XCTAssertThrowsError(try ConfigParser.parse("[com.a.b]\nopt+j :: down\nopt+j :: up\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 3, message: "duplicate keymap source (first defined on line 2)"))
+        }
+        // 两个正向区块有交集 → 报错
+        XCTAssertThrowsError(try ConfigParser.parse("""
+        apps s1 = com.a.b, com.c.d
+        apps s2 = com.c.d
+        [s1]
+        opt+j :: down
+        [s2]
+        opt+j :: up
+        """))
+        // 两个反向区块必然重叠 → 报错
+        XCTAssertThrowsError(try ConfigParser.parse("[!com.a.b]\nopt+j :: down\n[!com.c.d]\nopt+j :: up\n"))
+        // 不同层级 → 合法;正向不相交 → 合法
+        XCTAssertEqual(try ConfigParser.parse("opt+j :: down\n[com.a.b]\nopt+j :: up\n").keymaps.count, 2)
+        XCTAssertEqual(try ConfigParser.parse("[com.a.b]\nopt+j :: down\n[com.c.d]\nopt+j :: up\n").keymaps.count, 2)
+    }
+
+    func testDuplicateSetRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("apps s = com.a.b\napps s = com.c.d\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 2, message: "duplicate apps set 's' (first defined on line 1)"))
+        }
+    }
+
+    func testInvalidSetName() {
+        XCTAssertThrowsError(try ConfigParser.parse("apps a.b = x.y\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 1, message: "invalid set name 'a.b' (letters, digits, '-', '_' only)"))
+        }
+    }
+
+    func testEmptyAppList() {
+        XCTAssertThrowsError(try ConfigParser.parse("apps s =\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 1, message: "empty apps list for set 's'"))
+        }
+    }
+
+    func testBadSectionHeaders() {
+        XCTAssertThrowsError(try ConfigParser.parse("[]\n")) {
+            XCTAssertEqual($0 as? ConfigError, ConfigError(line: 1, message: "empty section name"))
+        }
+        XCTAssertThrowsError(try ConfigParser.parse("[!]\n")) {
+            XCTAssertEqual($0 as? ConfigError, ConfigError(line: 1, message: "empty section name"))
+        }
+        XCTAssertThrowsError(try ConfigParser.parse("[a b]\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                           ConfigError(line: 1, message: "section name must not contain whitespace"))
+        }
+        XCTAssertThrowsError(try ConfigParser.parse("[x\n")) {
+            XCTAssertEqual($0 as? ConfigError, ConfigError(line: 1, message: "expected closing ']'"))
+        }
+    }
+
+    func testScopedTriggerConflict() throws {
+        XCTAssertThrowsError(try ConfigParser.parse("[com.a.b]\n\"x\" => \"a\"\n\"x\" => \"b\"\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 3, message: "duplicate trigger \"x\" (first defined on line 2)"))
+        }
+        let config = try ConfigParser.parse("\"x\" => \"a\"\n[com.a.b]\n\"x\" => \"b\"\n")
+        XCTAssertEqual(config.hotstrings.count, 2)
+    }
+
+    func testBundleIDCaseInsensitive() throws {
+        let config = try ConfigParser.parse("[COM.Google.Chrome]\nopt+j :: down\n")
+        XCTAssertEqual(config.keymaps.first?.scope, .apps(["com.google.chrome"]))
+    }
 }
