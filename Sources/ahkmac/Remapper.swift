@@ -62,7 +62,10 @@ final class Remapper {
             return handleKeyDown(event)
         case .keyUp:
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-            if macroHeldKeys.remove(keyCode) != nil { return nil }   // 宏绑定键的抬起也吞掉
+            if macroHeldKeys.remove(keyCode) != nil {
+                activeRewrites.removeValue(forKey: keyCode)   // clear a stale chord rewrite for this keyCode
+                return nil                                    // 宏绑定键的抬起也吞掉
+            }
             if let target = activeRewrites.removeValue(forKey: keyCode) {
                 rewrite(event, to: target)
             }
