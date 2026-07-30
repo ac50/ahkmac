@@ -19,14 +19,16 @@ Single binary, no dependencies, configured by one text file.
 
 ## Install
 
-Download the binary from [Releases](../../releases) (universal, arm64 + x86_64):
+**Apple Silicon (arm64):** Download `ahkmac-arm64` from [Releases](../../releases):
 
 ```sh
-chmod +x ahkmac
-xattr -d com.apple.quarantine ahkmac   # unsigned binary
+chmod +x ahkmac-arm64
+xattr -d com.apple.quarantine ahkmac-arm64   # unsigned binary
 ```
 
-Or build from source on a Mac: `swift build -c release`.
+For app bundle, download `ahkmac.app.zip` from Releases, unzip, and drop `ahkmac.app` into `/Applications`.
+
+**Intel:** Build from source on a Mac: `swift build -c release`.
 
 ## Usage
 

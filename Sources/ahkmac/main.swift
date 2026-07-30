@@ -4,7 +4,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-let version = "0.3.1"
+let version = "0.5.0"
 let usage = """
 usage: ahkmac [--check] [--help] [--version] [config-path]
 
