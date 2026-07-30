@@ -1,4 +1,5 @@
 import AhkMacCore
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -11,6 +12,7 @@ AutoHotkey-style key remapper and text expander for macOS.
 Default config path: ~/.config/ahkmac.conf
 
   --check    parse the config and exit without starting the event tap
+  --apps     list running GUI apps with their bundle IDs
 
 Send SIGHUP to reload the config while running.
 """
@@ -35,6 +37,14 @@ func fail(_ message: String) -> Never {
 var arguments = Array(CommandLine.arguments.dropFirst())
 if arguments.contains("--help") { print(usage); exit(0) }
 if arguments.contains("--version") { print("ahkmac \(version)"); exit(0) }
+if arguments.contains("--apps") {
+    let rows = NSWorkspace.shared.runningApplications
+        .filter { $0.activationPolicy == .regular }
+        .compactMap { app in app.bundleIdentifier.map { "\($0)  \(app.localizedName ?? "")" } }
+        .sorted()
+    rows.forEach { print($0) }
+    exit(0)
+}
 var checkOnly = false
 if let index = arguments.firstIndex(of: "--check") {
     checkOnly = true
@@ -57,7 +67,7 @@ do {
 } catch {
     fail("cannot read \(configPath): \(error.localizedDescription)")
 }
-log("\(configPath): \(config.keymaps.count) keymaps, \(config.hotstrings.count) hotstrings")
+log("\(configPath): \(config.keymaps.count) keymaps, \(config.hotstrings.count) hotstrings, \(config.macros.count) macros")
 if checkOnly { exit(0) }
 
 let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
@@ -87,7 +97,8 @@ if !AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary) {
     while !AXIsProcessTrusted() { sleep(2) }
 }
 
-let remapper = Remapper(config: config, configPath: configPath)
+let remapper = Remapper(config: config, configPath: configPath,
+                        frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier })
 
 let eventMask: CGEventMask =
     (1 << CGEventType.keyDown.rawValue) |

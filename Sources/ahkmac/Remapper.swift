@@ -19,12 +19,18 @@ final class Remapper {
     /// same rewrite even if the modifiers were already released.
     private var activeRewrites: [UInt16: Chord] = [:]
     private let eventSource = CGEventSource(stateID: .hidSystemState)
-    private let backspaceKeyCode = CGKeyCode(KeySymbols.keyNames["delete"]!)
+    private let frontmostBundleID: () -> String?
+    private var macros: [MacroDef]
+    private let macroRunner: MacroRunner
+    private var macroHeldKeys: Set<UInt16> = []
 
-    init(config: Config, configPath: String) {
+    init(config: Config, configPath: String, frontmostBundleID: @escaping () -> String?) {
         self.configPath = configPath
         self.resolver = KeymapResolver(rules: config.keymaps)
         self.engine = HotstringEngine(rules: config.hotstrings)
+        self.frontmostBundleID = frontmostBundleID
+        self.macros = config.macros
+        self.macroRunner = MacroRunner(source: eventSource)
     }
 
     func reload() {
@@ -32,8 +38,9 @@ final class Remapper {
             let config = try loadConfig(atPath: configPath)
             resolver = KeymapResolver(rules: config.keymaps)
             engine = HotstringEngine(rules: config.hotstrings)
+            macros = config.macros
             activeRewrites.removeAll()
-            log("reloaded \(configPath): \(config.keymaps.count) keymaps, \(config.hotstrings.count) hotstrings")
+            log("reloaded \(configPath): \(config.keymaps.count) keymaps, \(config.hotstrings.count) hotstrings, \(config.macros.count) macros")
         } catch {
             log("reload failed, keeping current config: \(error)")
         }
@@ -55,6 +62,7 @@ final class Remapper {
             return handleKeyDown(event)
         case .keyUp:
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+            if macroHeldKeys.remove(keyCode) != nil { return nil }   // 宏绑定键的抬起也吞掉
             if let target = activeRewrites.removeValue(forKey: keyCode) {
                 rewrite(event, to: target)
             }
@@ -67,8 +75,10 @@ final class Remapper {
     private func handleKeyDown(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let pressed = Modifiers(flags: event.flags)
+        let app = frontmostBundleID()
+        engine.setActiveApp(app)
 
-        if let rule = resolver.resolve(keyCode: keyCode, pressed: pressed, app: nil) { // real app wired in Task 7
+        if let rule = resolver.resolve(keyCode: keyCode, pressed: pressed, app: app) {
             engine.reset()
             switch rule.target {
             case .chord:
@@ -76,8 +86,14 @@ final class Remapper {
                 activeRewrites[keyCode] = target
                 rewrite(event, to: target)
                 return Unmanaged.passUnretained(event)
-            case .macro:
-                return nil   // 吞掉;执行在 Task 7 接线(当前解析器尚不可能产出 macro 目标)
+            case .macro(let index):
+                engine.reset()
+                if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+                    return nil                    // 长按自动重复:吞掉但不重放宏
+                }
+                macroHeldKeys.insert(keyCode)
+                macroRunner.run(macros[index])
+                return nil
             }
         }
         if event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
@@ -92,7 +108,7 @@ final class Remapper {
             engine.reset()
             return Unmanaged.passUnretained(event)
         }
-        if keyCode == UInt16(backspaceKeyCode) {
+        if keyCode == UInt16(EventSynthesis.backspaceKeyCode) {
             if pressed.isEmpty || pressed == [.shift] {
                 engine.handleBackspace()
             } else {
@@ -128,47 +144,14 @@ final class Remapper {
     }
 
     private func post(_ firing: Firing, originalEvent: CGEvent) {
+        EventSynthesis.postBackspaces(firing.backspaces, source: eventSource)
         switch firing.output {
         case .text(let text, let repost):
-            for _ in 0..<firing.backspaces {
-                postSynthetic(CGEvent(keyboardEventSource: eventSource,
-                                      virtualKey: backspaceKeyCode, keyDown: true))
-                postSynthetic(CGEvent(keyboardEventSource: eventSource,
-                                      virtualKey: backspaceKeyCode, keyDown: false))
-            }
-            let units = Array(text.utf16)
-            var start = 0
-            while start < units.count {
-                var end = min(start + 20, units.count)
-                // never split a surrogate pair across chunks
-                if end < units.count && (0xD800...0xDBFF).contains(units[end - 1]) { end -= 1 }
-                let chunk = Array(units[start..<end])
-                let down = CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: true)
-                down?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
-                postSynthetic(down)
-                postSynthetic(CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: false))
-                start = end
-            }
-            if repost {
-                // Keep the original flags: the end char itself may need shift ('!').
-                postMarked(originalEvent.copy())
-            }
-        case .macro:
-            return   // Task 7 接线(当前引擎尚不可能产出 macro Firing)
+            EventSynthesis.postText(text, source: eventSource)
+            if repost { EventSynthesis.post(originalEvent.copy()) }  // 结束符重放,保留原 flags
+        case .macro(let index):
+            macroRunner.run(macros[index])                           // 结束符已吞掉,不重放
         }
-    }
-
-    /// Synthesized backspaces/text must not inherit modifiers the user is
-    /// still physically holding (e.g. shift while typing the '!' end char).
-    private func postSynthetic(_ event: CGEvent?) {
-        event?.flags = []
-        postMarked(event)
-    }
-
-    private func postMarked(_ event: CGEvent?) {
-        guard let event else { return }
-        event.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-        event.post(tap: .cghidEventTap)
     }
 }
 
