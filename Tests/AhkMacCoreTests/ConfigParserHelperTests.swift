@@ -90,22 +90,22 @@ final class ConfigParserHelperTests: XCTestCase {
         }
     }
 
-    // MARK: KeymapRule.output
+    // MARK: KeymapRule.chordOutput
 
     func testOutputMergesPassThroughModifiers() {
         let rule = KeymapRule(source: Chord(keyCode: 0x26, modifiers: [.opt]),
-                              target: Chord(keyCode: 0x7D, modifiers: []),
-                              line: 1)
-        XCTAssertEqual(rule.output(pressed: [.opt]), Chord(keyCode: 0x7D, modifiers: []))
-        XCTAssertEqual(rule.output(pressed: [.opt, .shift]),
+                              target: .chord(Chord(keyCode: 0x7D, modifiers: [])),
+                              scope: .global, line: 1)
+        XCTAssertEqual(rule.chordOutput(pressed: [.opt]), Chord(keyCode: 0x7D, modifiers: []))
+        XCTAssertEqual(rule.chordOutput(pressed: [.opt, .shift]),
                        Chord(keyCode: 0x7D, modifiers: [.shift]))
     }
 
     func testOutputAddsTargetModifiers() {
         let rule = KeymapRule(source: Chord(keyCode: 0x02, modifiers: [.opt]),
-                              target: Chord(keyCode: 0x7C, modifiers: [.cmd]),
-                              line: 1)
-        XCTAssertEqual(rule.output(pressed: [.opt, .shift]),
+                              target: .chord(Chord(keyCode: 0x7C, modifiers: [.cmd])),
+                              scope: .global, line: 1)
+        XCTAssertEqual(rule.chordOutput(pressed: [.opt, .shift]),
                        Chord(keyCode: 0x7C, modifiers: [.cmd, .shift]))
     }
 }

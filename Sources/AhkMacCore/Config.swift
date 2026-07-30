@@ -1,33 +1,75 @@
-public struct KeymapRule: Hashable {
-    public let source: Chord
-    public let target: Chord
+/// What a keymap rule emits when it fires: a chord to synthesize, or a
+/// macro to run (index into `Config.macros`).
+public enum KeymapTarget: Hashable {
+    case chord(Chord)
+    case macro(Int)
+}
+
+/// What a hotstring fires: literal replacement text, or a macro to run
+/// (index into `Config.macros`).
+public enum HotstringAction: Hashable {
+    case text(String)
+    case macro(Int)
+}
+
+/// One step of a macro's script.
+public enum MacroStep: Hashable {
+    case key(Chord)
+    case text(String)
+    case sleep(Int)
+    case run(String)
+}
+
+/// A named, reusable sequence of steps that a keymap or hotstring can
+/// target by index into `Config.macros`.
+public struct MacroDef: Hashable {
+    public let name: String
+    public let steps: [MacroStep]
     public let line: Int
 
-    public init(source: Chord, target: Chord, line: Int) {
+    public init(name: String, steps: [MacroStep], line: Int) {
+        self.name = name
+        self.steps = steps
+        self.line = line
+    }
+}
+
+public struct KeymapRule: Hashable {
+    public let source: Chord
+    public let target: KeymapTarget
+    public let scope: Scope
+    public let line: Int
+
+    public init(source: Chord, target: KeymapTarget, scope: Scope, line: Int) {
         self.source = source
         self.target = target
+        self.scope = scope
         self.line = line
     }
 
     /// The chord to emit when this rule fires: the target's modifiers plus
     /// any pressed modifiers the source did not consume (pass-through, so
-    /// e.g. `opt+j :: down` pressed with shift yields shift+down).
-    public func output(pressed: Modifiers) -> Chord {
-        Chord(keyCode: target.keyCode,
-              modifiers: target.modifiers.union(pressed.subtracting(source.modifiers)))
+    /// e.g. `opt+j :: down` pressed with shift yields shift+down). nil when
+    /// the target is a macro — there is no chord to emit.
+    public func chordOutput(pressed: Modifiers) -> Chord? {
+        guard case .chord(let target) = target else { return nil }
+        return Chord(keyCode: target.keyCode,
+                     modifiers: target.modifiers.union(pressed.subtracting(source.modifiers)))
     }
 }
 
 public struct HotstringRule: Hashable {
     public let trigger: String
-    public let replacement: String
+    public let action: HotstringAction
     public let immediate: Bool
+    public let scope: Scope
     public let line: Int
 
-    public init(trigger: String, replacement: String, immediate: Bool, line: Int) {
+    public init(trigger: String, action: HotstringAction, immediate: Bool, scope: Scope, line: Int) {
         self.trigger = trigger
-        self.replacement = replacement
+        self.action = action
         self.immediate = immediate
+        self.scope = scope
         self.line = line
     }
 
@@ -45,10 +87,12 @@ public struct HotstringRule: Hashable {
 public struct Config: Equatable {
     public let keymaps: [KeymapRule]
     public let hotstrings: [HotstringRule]
+    public let macros: [MacroDef]
 
-    public init(keymaps: [KeymapRule], hotstrings: [HotstringRule]) {
+    public init(keymaps: [KeymapRule], hotstrings: [HotstringRule], macros: [MacroDef] = []) {
         self.keymaps = keymaps
         self.hotstrings = hotstrings
+        self.macros = macros
     }
 }
 

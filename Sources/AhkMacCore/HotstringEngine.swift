@@ -1,16 +1,21 @@
 /// What to do when a hotstring fires. The caller must suppress the event
-/// that produced the decisive character, synthesize `backspaces` backspace
-/// presses, type `text`, and, if `repostTrigger` is set (end-char mode),
-/// re-post a copy of the suppressed original event afterwards.
-public struct Replacement: Equatable {
+/// that produced the decisive character and synthesize `backspaces`
+/// backspace presses, then act on `output`: for `.text(text, repost:)`,
+/// type `text` and, if `repost` is set (end-char mode), re-post a copy of
+/// the suppressed original event afterwards; for `.macro(index)`, run
+/// `Config.macros[index]`.
+public struct Firing: Equatable {
     public let backspaces: Int
-    public let text: String
-    public let repostTrigger: Bool
+    public let output: Output
 
-    public init(backspaces: Int, text: String, repostTrigger: Bool) {
+    public enum Output: Equatable {
+        case text(String, repost: Bool)
+        case macro(Int)
+    }
+
+    public init(backspaces: Int, output: Output) {
         self.backspaces = backspaces
-        self.text = text
-        self.repostTrigger = repostTrigger
+        self.output = output
     }
 }
 
@@ -31,12 +36,11 @@ public final class HotstringEngine {
     }
 
     /// Feed one typed character; nil means "let the event through".
-    public func handleCharacter(_ ch: Character) -> Replacement? {
+    public func handleCharacter(_ ch: Character) -> Firing? {
         if HotstringRule.endChars.contains(ch) {
             if let rule = longestMatch(immediate: false) {
                 buffer.removeAll()
-                return Replacement(backspaces: rule.trigger.count,
-                                   text: rule.replacement, repostTrigger: true)
+                return fire(rule, backspaces: rule.trigger.count, endChar: true)
             }
         } else if !Self.isTypable(ch) {
             buffer.removeAll()
@@ -45,10 +49,18 @@ public final class HotstringEngine {
         append(ch)
         if let rule = longestMatch(immediate: true) {
             buffer.removeAll()
-            return Replacement(backspaces: rule.trigger.count - 1,
-                               text: rule.replacement, repostTrigger: false)
+            return fire(rule, backspaces: rule.trigger.count - 1, endChar: false)
         }
         return nil
+    }
+
+    private func fire(_ rule: HotstringRule, backspaces: Int, endChar: Bool) -> Firing {
+        switch rule.action {
+        case .text(let text):
+            return Firing(backspaces: backspaces, output: .text(text, repost: endChar))
+        case .macro(let index):
+            return Firing(backspaces: backspaces, output: .macro(index))
+        }
     }
 
     private func append(_ ch: Character) {

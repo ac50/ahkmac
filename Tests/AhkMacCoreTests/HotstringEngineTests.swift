@@ -1,25 +1,34 @@
 import XCTest
 @testable import AhkMacCore
 
+private extension Firing {
+    /// Convenience accessor mirroring the old `Replacement.text` field, for
+    /// assertions that only care about the fired text.
+    var text: String? {
+        if case .text(let text, _) = output { return text }
+        return nil
+    }
+}
+
 final class HotstringEngineTests: XCTestCase {
     private func engine(_ rules: [HotstringRule]) -> HotstringEngine {
         HotstringEngine(rules: rules)
     }
 
-    private func type(_ text: String, into engine: HotstringEngine) -> [Replacement?] {
+    private func type(_ text: String, into engine: HotstringEngine) -> [Firing?] {
         text.map { engine.handleCharacter($0) }
     }
 
-    private let btw = HotstringRule(trigger: "btw", replacement: "by the way",
-                                    immediate: false, line: 1)
-    private let mail = HotstringRule(trigger: "@@", replacement: "user@example.com",
-                                     immediate: true, line: 2)
+    private let btw = HotstringRule(trigger: "btw", action: .text("by the way"),
+                                    immediate: false, scope: .global, line: 1)
+    private let mail = HotstringRule(trigger: "@@", action: .text("user@example.com"),
+                                     immediate: true, scope: .global, line: 2)
 
     func testEndCharModeFiresOnEndChar() {
         let engine = engine([btw])
         XCTAssertEqual(type("btw", into: engine), [nil, nil, nil])
         XCTAssertEqual(engine.handleCharacter(" "),
-                       Replacement(backspaces: 3, text: "by the way", repostTrigger: true))
+                       Firing(backspaces: 3, output: .text("by the way", repost: true)))
     }
 
     func testEndCharModeDoesNotFireWithoutEndChar() {
@@ -31,14 +40,14 @@ final class HotstringEngineTests: XCTestCase {
         let engine = engine([btw])
         XCTAssertEqual(type("xbtw", into: engine), [nil, nil, nil, nil])
         XCTAssertEqual(engine.handleCharacter("."),
-                       Replacement(backspaces: 3, text: "by the way", repostTrigger: true))
+                       Firing(backspaces: 3, output: .text("by the way", repost: true)))
     }
 
     func testImmediateModeFiresOnLastCharacter() {
         let engine = engine([mail])
         XCTAssertEqual(engine.handleCharacter("@"), nil)
         XCTAssertEqual(engine.handleCharacter("@"),
-                       Replacement(backspaces: 1, text: "user@example.com", repostTrigger: false))
+                       Firing(backspaces: 1, output: .text("user@example.com", repost: false)))
     }
 
     func testEndCharDoesNotCompleteSplitImmediateTrigger() {
@@ -50,30 +59,30 @@ final class HotstringEngineTests: XCTestCase {
     }
 
     func testPunctuationInsideTrigger() {
-        let email = HotstringRule(trigger: "e-mail", replacement: "yuan@example.com",
-                                  immediate: false, line: 1)
+        let email = HotstringRule(trigger: "e-mail", action: .text("yuan@example.com"),
+                                  immediate: false, scope: .global, line: 1)
         let engine = engine([email])
         XCTAssertEqual(type("e-mail", into: engine), Array(repeating: nil, count: 6))
         XCTAssertEqual(engine.handleCharacter(" "),
-                       Replacement(backspaces: 6, text: "yuan@example.com", repostTrigger: true))
+                       Firing(backspaces: 6, output: .text("yuan@example.com", repost: true)))
     }
 
     func testImmediateTriggerEndingInPunctuation() {
-        let dotted = HotstringRule(trigger: "btw.", replacement: "by the way.",
-                                   immediate: true, line: 1)
+        let dotted = HotstringRule(trigger: "btw.", action: .text("by the way."),
+                                   immediate: true, scope: .global, line: 1)
         let engine = engine([dotted])
         _ = type("btw", into: engine)
         XCTAssertEqual(engine.handleCharacter("."),
-                       Replacement(backspaces: 3, text: "by the way.", repostTrigger: false))
+                       Firing(backspaces: 3, output: .text("by the way.", repost: false)))
     }
 
     func testEndCharModeWinsOverImmediateOnSameKeystroke() {
-        let immediateTw = HotstringRule(trigger: "tw.", replacement: "IMMEDIATE",
-                                        immediate: true, line: 2)
+        let immediateTw = HotstringRule(trigger: "tw.", action: .text("IMMEDIATE"),
+                                        immediate: true, scope: .global, line: 2)
         let engine = engine([btw, immediateTw])
         _ = type("btw", into: engine)
         XCTAssertEqual(engine.handleCharacter("."),
-                       Replacement(backspaces: 3, text: "by the way", repostTrigger: true))
+                       Firing(backspaces: 3, output: .text("by the way", repost: true)))
     }
 
     func testBackspaceRepairsBufferAcrossEndChar() {
@@ -93,7 +102,7 @@ final class HotstringEngineTests: XCTestCase {
     }
 
     func testLongestTriggerWins() {
-        let short = HotstringRule(trigger: "tw", replacement: "SHORT", immediate: false, line: 1)
+        let short = HotstringRule(trigger: "tw", action: .text("SHORT"), immediate: false, scope: .global, line: 1)
         let engine = engine([short, btw])
         _ = type("btw", into: engine)
         XCTAssertEqual(engine.handleCharacter(" ")?.text, "by the way")
@@ -132,5 +141,25 @@ final class HotstringEngineTests: XCTestCase {
         XCTAssertTrue(HotstringEngine.isTypable("👍"))
         XCTAssertFalse(HotstringEngine.isTypable("\u{08}"))
         XCTAssertFalse(HotstringEngine.isTypable("\u{F704}"))
+    }
+
+    // MARK: macro targets
+
+    func testMacroHotstringImmediate() {
+        let engine = HotstringEngine(rules: [
+            HotstringRule(trigger: "@sig", action: .macro(0), immediate: true, scope: .global, line: 1),
+        ])
+        for ch in "@si" { XCTAssertNil(engine.handleCharacter(ch)) }
+        XCTAssertEqual(engine.handleCharacter("g"),
+                       Firing(backspaces: 3, output: .macro(0)))   // len-1,最后一击被吞
+    }
+
+    func testMacroHotstringEndCharSwallowsEndChar() {
+        let engine = HotstringEngine(rules: [
+            HotstringRule(trigger: "sig", action: .macro(2), immediate: false, scope: .global, line: 1),
+        ])
+        for ch in "sig" { XCTAssertNil(engine.handleCharacter(ch)) }
+        XCTAssertEqual(engine.handleCharacter(" "),
+                       Firing(backspaces: 3, output: .macro(2)))   // 结束符不重放:output 非 .text,无 repost
     }
 }

@@ -15,15 +15,15 @@ final class ConfigParserTests: XCTestCase {
         """)
         XCTAssertEqual(config.keymaps, [
             KeymapRule(source: Chord(keyCode: 0x26, modifiers: [.opt]),
-                       target: Chord(keyCode: 0x7D, modifiers: []), line: 2),
+                       target: .chord(Chord(keyCode: 0x7D, modifiers: [])), scope: .global, line: 2),
             KeymapRule(source: Chord(keyCode: 0x28, modifiers: [.opt]),
-                       target: Chord(keyCode: 0x7E, modifiers: []), line: 3),
+                       target: .chord(Chord(keyCode: 0x7E, modifiers: [])), scope: .global, line: 3),
             KeymapRule(source: Chord(keyCode: 0x02, modifiers: [.opt]),
-                       target: Chord(keyCode: 0x7C, modifiers: [.cmd]), line: 5),
+                       target: .chord(Chord(keyCode: 0x7C, modifiers: [.cmd])), scope: .global, line: 5),
         ])
         XCTAssertEqual(config.hotstrings, [
-            HotstringRule(trigger: "btw", replacement: "by the way", immediate: false, line: 6),
-            HotstringRule(trigger: "@@", replacement: "user@example.com", immediate: true, line: 7),
+            HotstringRule(trigger: "btw", action: .text("by the way"), immediate: false, scope: .global, line: 6),
+            HotstringRule(trigger: "@@", action: .text("user@example.com"), immediate: true, scope: .global, line: 7),
         ])
     }
 
@@ -93,8 +93,8 @@ final class ConfigParserTests: XCTestCase {
 
         let immediate = try ConfigParser.parse(#"*"btw\." => "by the way.""#)
         XCTAssertEqual(immediate.hotstrings.first,
-                       HotstringRule(trigger: "btw.", replacement: "by the way.",
-                                     immediate: true, line: 1))
+                       HotstringRule(trigger: "btw.", action: .text("by the way."),
+                                     immediate: true, scope: .global, line: 1))
     }
 
     func testStarWithoutQuoteRejected() {
@@ -105,6 +105,6 @@ final class ConfigParserTests: XCTestCase {
 
     func testReplacementMayContainAnything() throws {
         let config = try ConfigParser.parse(#""sig" => "Bye!\n-- yt :: #1""#)
-        XCTAssertEqual(config.hotstrings.first?.replacement, "Bye!\n-- yt :: #1")
+        XCTAssertEqual(config.hotstrings.first?.action, .text("Bye!\n-- yt :: #1"))
     }
 }

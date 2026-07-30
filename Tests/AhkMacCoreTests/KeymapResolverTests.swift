@@ -3,7 +3,7 @@ import XCTest
 
 final class KeymapResolverTests: XCTestCase {
     private func rule(_ source: Chord, _ target: Chord, line: Int = 1) -> KeymapRule {
-        KeymapRule(source: source, target: target, line: line)
+        KeymapRule(source: source, target: .chord(target), scope: .global, line: line)
     }
 
     func testExactMatch() {
@@ -47,6 +47,6 @@ final class KeymapResolverTests: XCTestCase {
                         Chord(keyCode: 0x0B, modifiers: []))
         let resolver = KeymapResolver(rules: [aToB])
         XCTAssertEqual(resolver.resolve(keyCode: 0x00, pressed: [.cmd]), aToB)
-        XCTAssertEqual(aToB.output(pressed: [.cmd]), Chord(keyCode: 0x0B, modifiers: [.cmd]))
+        XCTAssertEqual(aToB.chordOutput(pressed: [.cmd]), Chord(keyCode: 0x0B, modifiers: [.cmd]))
     }
 }

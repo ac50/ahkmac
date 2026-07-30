@@ -69,11 +69,16 @@ final class Remapper {
         let pressed = Modifiers(flags: event.flags)
 
         if let rule = resolver.resolve(keyCode: keyCode, pressed: pressed) {
-            let target = rule.output(pressed: pressed)
-            activeRewrites[keyCode] = target
             engine.reset()
-            rewrite(event, to: target)
-            return Unmanaged.passUnretained(event)
+            switch rule.target {
+            case .chord:
+                let target = rule.chordOutput(pressed: pressed)!
+                activeRewrites[keyCode] = target
+                rewrite(event, to: target)
+                return Unmanaged.passUnretained(event)
+            case .macro:
+                return nil   // 吞掉;执行在 Task 7 接线(当前解析器尚不可能产出 macro 目标)
+            }
         }
         if event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
            let target = activeRewrites[keyCode] {
@@ -99,10 +104,10 @@ final class Remapper {
             engine.reset()
             return Unmanaged.passUnretained(event)
         }
-        guard let replacement = engine.handleCharacter(ch) else {
+        guard let firing = engine.handleCharacter(ch) else {
             return Unmanaged.passUnretained(event)
         }
-        post(replacement, originalEvent: event)
+        post(firing, originalEvent: event)
         return nil // suppress the event that completed the trigger
     }
 
@@ -122,29 +127,34 @@ final class Remapper {
         event.flags = target.modifiers.cgFlags
     }
 
-    private func post(_ replacement: Replacement, originalEvent: CGEvent) {
-        for _ in 0..<replacement.backspaces {
-            postSynthetic(CGEvent(keyboardEventSource: eventSource,
-                                  virtualKey: backspaceKeyCode, keyDown: true))
-            postSynthetic(CGEvent(keyboardEventSource: eventSource,
-                                  virtualKey: backspaceKeyCode, keyDown: false))
-        }
-        let units = Array(replacement.text.utf16)
-        var start = 0
-        while start < units.count {
-            var end = min(start + 20, units.count)
-            // never split a surrogate pair across chunks
-            if end < units.count && (0xD800...0xDBFF).contains(units[end - 1]) { end -= 1 }
-            let chunk = Array(units[start..<end])
-            let down = CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: true)
-            down?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
-            postSynthetic(down)
-            postSynthetic(CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: false))
-            start = end
-        }
-        if replacement.repostTrigger {
-            // Keep the original flags: the end char itself may need shift ('!').
-            postMarked(originalEvent.copy())
+    private func post(_ firing: Firing, originalEvent: CGEvent) {
+        switch firing.output {
+        case .text(let text, let repost):
+            for _ in 0..<firing.backspaces {
+                postSynthetic(CGEvent(keyboardEventSource: eventSource,
+                                      virtualKey: backspaceKeyCode, keyDown: true))
+                postSynthetic(CGEvent(keyboardEventSource: eventSource,
+                                      virtualKey: backspaceKeyCode, keyDown: false))
+            }
+            let units = Array(text.utf16)
+            var start = 0
+            while start < units.count {
+                var end = min(start + 20, units.count)
+                // never split a surrogate pair across chunks
+                if end < units.count && (0xD800...0xDBFF).contains(units[end - 1]) { end -= 1 }
+                let chunk = Array(units[start..<end])
+                let down = CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: true)
+                down?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+                postSynthetic(down)
+                postSynthetic(CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: false))
+                start = end
+            }
+            if repost {
+                // Keep the original flags: the end char itself may need shift ('!').
+                postMarked(originalEvent.copy())
+            }
+        case .macro:
+            return   // Task 7 接线(当前引擎尚不可能产出 macro Firing)
         }
     }
 

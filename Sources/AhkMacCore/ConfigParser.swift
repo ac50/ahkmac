@@ -46,7 +46,7 @@ public enum ConfigParser {
         }
         let source = try parseChord(line[..<separator.lowerBound], lineNo: lineNo)
         let target = try parseChord(line[separator.upperBound...], lineNo: lineNo)
-        return KeymapRule(source: source, target: target, line: lineNo)
+        return KeymapRule(source: source, target: .chord(target), scope: .global, line: lineNo)
     }
 
     static func parseHotstring(_ line: Substring, lineNo: Int) throws -> HotstringRule {
@@ -79,8 +79,8 @@ public enum ConfigParser {
         if !trim(tail).isEmpty {
             throw ConfigError(line: lineNo, message: "unexpected content after replacement")
         }
-        return HotstringRule(trigger: trigger, replacement: replacement,
-                             immediate: immediate, line: lineNo)
+        return HotstringRule(trigger: trigger, action: .text(replacement),
+                             immediate: immediate, scope: .global, line: lineNo)
     }
 
     /// Cuts the line at the first '#' that is not inside a quoted string.
