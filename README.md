@@ -10,6 +10,12 @@ Single binary, no dependencies, configured by one text file.
   `opt+j :: down` pressing `opt+shift+j` yields `shift+down`.
 - **Text expansion** — `"btw" => "by the way"` fires after a
   space/enter/punctuation; `*"@@" => "you@example.com"` fires immediately.
+- **App scoping** — `[com.google.Chrome]` restricts the rules below it to
+  that app; `apps name = id, id` names a reusable set for a `[name]`
+  section; `[!name]` inverts (everywhere except); `[*]` returns to global.
+- **Macros** — `macro name { key/text/sleep/run }` defines a named action
+  sequence; bind it from a keymap (`:: macro name`) or a hotstring
+  (`=> macro name`).
 
 ## Install
 
@@ -29,6 +35,7 @@ cp examples/ahkmac.conf ~/.config/ahkmac.conf
 ./ahkmac                  # uses ~/.config/ahkmac.conf
 ./ahkmac my.conf          # explicit config path
 ./ahkmac --check my.conf  # just validate the config
+./ahkmac --apps           # list running apps and their bundle IDs
 ```
 
 ahkmac needs the **Accessibility** permission
@@ -77,6 +84,21 @@ from a terminal — it prints whether it is running or still waiting:
 source :: target                 key remap, chord = [mod+]*key
 "trigger" => "replacement"       hotstring, fires on end char (kept)
 *"trigger" => "replacement"      hotstring, fires immediately
+
+apps name = id, id, ...          named set of bundle IDs
+[bundle.id]                      section: rules below apply only in that app
+[name]                           section: rules below apply only in that apps set
+[!name]                          section: rules below apply everywhere except that set
+[*]                              section: back to global scope (the default)
+
+macro name {                     named, reusable action sequence
+    key chord                      synthesize a key chord
+    text "…"                       type literal text
+    sleep ms                       pause 0–10000 ms
+    run "shell command"            run via /bin/sh -c, async, fire-and-forget
+}
+source :: macro name             keymap bound to a macro
+"trigger" => macro name          hotstring bound to a macro
 ```
 
 - Modifiers: `cmd` `opt`/`alt` `ctrl` `shift` `fn`
@@ -88,6 +110,28 @@ source :: target                 key remap, chord = [mod+]*key
   end character (see below)
 - Errors are reported with line numbers; duplicate sources/triggers are
   rejected.
+
+### Scoping
+
+- A `[…]` header sets the scope for every rule after it, until the next
+  header or end of file. Bundle IDs match case-insensitively; find them
+  with `ahkmac --apps`.
+- `apps` sets and `macro` blocks are global declarations — they take
+  effect regardless of which section they're written in.
+- Two rules for the same key/trigger conflict only if their scopes could
+  both match the same app. Same-tier conflicts (e.g. two overlapping
+  `[name]` sections) are rejected at parse time; cross-tier overrides are
+  legal and the more specific tier wins at runtime — `[bundle.id]`/`[name]`
+  beats `[!name]` beats global.
+
+### Macros
+
+- A macro-bound keymap or hotstring runs the named `macro` block instead
+  of emitting a chord or replacement text.
+- Holding a macro-bound hotkey down does not re-run the macro — key
+  autorepeat is ignored.
+- A macro-bound hotstring in end-char mode swallows the end character
+  (it is not retyped), unlike a text hotstring, which reposts it.
 
 ### End characters and escaping
 
