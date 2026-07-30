@@ -63,3 +63,48 @@ public struct ConfigError: Error, Equatable, CustomStringConvertible {
 
     public var description: String { "line \(line): \(message)" }
 }
+
+/// Where a rule applies: everywhere, only in the listed apps, or
+/// everywhere except them. Bundle IDs are stored lowercased; callers
+/// must lowercase the active app before matching.
+public enum Scope: Hashable {
+    case global
+    case apps([String])
+    case exceptApps([String])
+
+    /// Precedence tier: positive scope beats negated beats global.
+    public var level: Int {
+        switch self {
+        case .apps: return 2
+        case .exceptApps: return 1
+        case .global: return 0
+        }
+    }
+
+    public func matches(app: String?) -> Bool {
+        switch self {
+        case .global:
+            return true
+        case .apps(let ids):
+            guard let app else { return false }
+            return ids.contains(app)
+        case .exceptApps(let ids):
+            guard let app else { return true }
+            return !ids.contains(app)
+        }
+    }
+
+    /// Whether two scopes of the same tier could both match some app —
+    /// the static ambiguity check behind duplicate detection. Different
+    /// tiers never count: the more specific rule wins at runtime.
+    public func mayOverlap(_ other: Scope) -> Bool {
+        switch (self, other) {
+        case (.global, .global), (.exceptApps, .exceptApps):
+            return true
+        case (.apps(let a), .apps(let b)):
+            return !Set(a).isDisjoint(with: b)
+        default:
+            return false
+        }
+    }
+}
