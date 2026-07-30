@@ -68,7 +68,7 @@ final class Remapper {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let pressed = Modifiers(flags: event.flags)
 
-        if let rule = resolver.resolve(keyCode: keyCode, pressed: pressed) {
+        if let rule = resolver.resolve(keyCode: keyCode, pressed: pressed, app: nil) { // real app wired in Task 7
             engine.reset()
             switch rule.target {
             case .chord:
