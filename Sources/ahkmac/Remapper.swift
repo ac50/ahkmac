@@ -99,6 +99,11 @@ final class Remapper {
                 return nil
             }
         }
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0, macroHeldKeys.contains(keyCode) {
+            // A modifier was released mid-hold, so the resolver no longer matches;
+            // swallow the autorepeat instead of leaking it through as typed text.
+            return nil
+        }
         if event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
            let target = activeRewrites[keyCode] {
             // A modifier was released mid-hold; keep autorepeats consistent.

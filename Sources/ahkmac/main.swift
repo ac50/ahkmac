@@ -6,7 +6,7 @@ import Foundation
 
 let version = "0.5.0"
 let usage = """
-usage: ahkmac [--check] [--help] [--version] [config-path]
+usage: ahkmac [--check] [--apps] [--help] [--version] [config-path]
 
 AutoHotkey-style key remapper and text expander for macOS.
 Default config path: ~/.config/ahkmac.conf

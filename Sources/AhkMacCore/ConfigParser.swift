@@ -111,9 +111,11 @@ public enum ConfigParser {
     }
 
     /// Parses a `[...]` section header. Content is trimmed after removing
-    /// the brackets; `*` means global, a leading `!` negates, empty or
-    /// whitespace-containing names are rejected. The name itself (bundle
-    /// ID vs. set name) is resolved later by ConfigLinker.
+    /// the brackets; `*` means global, a leading `!` negates, empty,
+    /// whitespace-containing, or comma-containing names are rejected (a
+    /// header holds exactly one entry; multiple apps go through a named
+    /// `apps` set). The name itself (bundle ID vs. set name) is resolved
+    /// later by ConfigLinker.
     static func parseSectionHeader(_ line: Substring, lineNo: Int) throws -> ScopeToken {
         guard line.last == "]" else {
             throw ConfigError(line: lineNo, message: "expected closing ']'")
@@ -131,8 +133,8 @@ public enum ConfigParser {
         if name.isEmpty {
             throw ConfigError(line: lineNo, message: "empty section name")
         }
-        if name.contains(where: { $0 == " " || $0 == "\t" }) {
-            throw ConfigError(line: lineNo, message: "section name must not contain whitespace")
+        if name.contains(where: { $0 == " " || $0 == "\t" || $0 == "," }) {
+            throw ConfigError(line: lineNo, message: "section name must not contain whitespace or ','")
         }
         return .name(String(name), negated: negated, line: lineNo)
     }
@@ -161,6 +163,10 @@ public enum ConfigParser {
             }
             if id.contains(where: { $0 == " " || $0 == "\t" }) {
                 throw ConfigError(line: lineNo, message: "app id must not contain whitespace")
+            }
+            if !id.contains(".") {
+                throw ConfigError(line: lineNo,
+                    message: "bad bundle ID '\(id)' in apps declaration (bundle IDs contain a '.')")
             }
             ids.append(id.lowercased())
         }

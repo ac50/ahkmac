@@ -155,13 +155,16 @@ enum ConfigLinker {
     }
 
     /// Groups rules by `source`, and within each group — sorted by line —
-    /// flags the first pair whose scopes may overlap.
+    /// flags the first pair whose scopes may overlap. Groups themselves are
+    /// visited in file order (by minimum rule line) so which conflict is
+    /// reported first doesn't depend on Dictionary iteration order.
     private static func detectKeymapConflicts(_ rules: [KeymapRule]) throws {
         var groups: [Chord: [KeymapRule]] = [:]
         for rule in rules {
             groups[rule.source, default: []].append(rule)
         }
-        for group in groups.values {
+        let orderedGroups = groups.values.sorted { $0.map(\.line).min()! < $1.map(\.line).min()! }
+        for group in orderedGroups {
             let sorted = group.sorted { $0.line < $1.line }
             for i in 1..<sorted.count {
                 for j in 0..<i where sorted[j].scope.mayOverlap(sorted[i].scope) {
@@ -173,13 +176,16 @@ enum ConfigLinker {
     }
 
     /// Groups rules by `trigger`, and within each group — sorted by line —
-    /// flags the first pair whose scopes may overlap.
+    /// flags the first pair whose scopes may overlap. Groups themselves are
+    /// visited in file order (by minimum rule line) so which conflict is
+    /// reported first doesn't depend on Dictionary iteration order.
     private static func detectHotstringConflicts(_ rules: [HotstringRule]) throws {
         var groups: [String: [HotstringRule]] = [:]
         for rule in rules {
             groups[rule.trigger, default: []].append(rule)
         }
-        for group in groups.values {
+        let orderedGroups = groups.values.sorted { $0.map(\.line).min()! < $1.map(\.line).min()! }
+        for group in orderedGroups {
             let sorted = group.sorted { $0.line < $1.line }
             for i in 1..<sorted.count {
                 for j in 0..<i where sorted[j].scope.mayOverlap(sorted[i].scope) {

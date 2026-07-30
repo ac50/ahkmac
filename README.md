@@ -136,6 +136,8 @@ source :: macro name             keymap bound to a macro
   autorepeat is ignored.
 - A macro-bound hotstring in end-char mode swallows the end character
   (it is not retyped), unlike a text hotstring, which reposts it.
+- `run` failures (launch error or non-zero exit) are only logged to
+  stderr — invisible when running as an app bundle.
 
 ### End characters and escaping
 

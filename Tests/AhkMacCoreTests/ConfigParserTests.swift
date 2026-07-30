@@ -184,6 +184,14 @@ final class ConfigParserTests: XCTestCase {
         }
     }
 
+    func testSetEntryWithoutDotRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("apps work = editors\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 1,
+                    message: "bad bundle ID 'editors' in apps declaration (bundle IDs contain a '.')"))
+        }
+    }
+
     func testBadSectionHeaders() {
         XCTAssertThrowsError(try ConfigParser.parse("[]\n")) {
             XCTAssertEqual($0 as? ConfigError, ConfigError(line: 1, message: "empty section name"))
@@ -193,10 +201,17 @@ final class ConfigParserTests: XCTestCase {
         }
         XCTAssertThrowsError(try ConfigParser.parse("[a b]\n")) {
             XCTAssertEqual($0 as? ConfigError,
-                           ConfigError(line: 1, message: "section name must not contain whitespace"))
+                           ConfigError(line: 1, message: "section name must not contain whitespace or ','"))
         }
         XCTAssertThrowsError(try ConfigParser.parse("[x\n")) {
             XCTAssertEqual($0 as? ConfigError, ConfigError(line: 1, message: "expected closing ']'"))
+        }
+    }
+
+    func testCommaInSectionHeaderRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("[com.a,com.b]\nopt+j :: down\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                           ConfigError(line: 1, message: "section name must not contain whitespace or ','"))
         }
     }
 
