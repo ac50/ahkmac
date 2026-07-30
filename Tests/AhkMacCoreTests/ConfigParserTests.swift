@@ -213,4 +213,111 @@ final class ConfigParserTests: XCTestCase {
         let config = try ConfigParser.parse("[COM.Google.Chrome]\nopt+j :: down\n")
         XCTAssertEqual(config.keymaps.first?.scope, .apps(["com.google.chrome"]))
     }
+
+    // MARK: macros
+
+    func testMacroDefinitionAndBindings() throws {
+        let config = try ConfigParser.parse("""
+        opt+y :: macro copy-line          # 先绑定后定义,合法
+        *"@sig" => macro copy-line
+        macro copy-line {
+            key cmd+shift+right
+            sleep 100
+            text "done\\n"
+            run "open -a Notes"
+        }
+        """)
+        XCTAssertEqual(config.macros, [MacroDef(name: "copy-line", steps: [
+            .key(Chord(keyCode: 0x7C, modifiers: [.cmd, .shift])),
+            .sleep(100),
+            .text("done\n"),
+            .run("open -a Notes"),
+        ], line: 3)])
+        XCTAssertEqual(config.keymaps.first?.target, .macro(0))
+        XCTAssertEqual(config.hotstrings.first?.action, .macro(0))
+    }
+
+    func testMacroInsideSectionIsGlobalAndScopeStillApplies() throws {
+        let config = try ConfigParser.parse("""
+        [com.a.b]
+        opt+y :: macro m
+        macro m {
+            key cmd+c
+        }
+        """)
+        XCTAssertEqual(config.macros.count, 1)                       // 定义不受区块影响
+        XCTAssertEqual(config.keymaps.first?.scope, .apps(["com.a.b"]))  // 绑定受区块约束
+    }
+
+    func testEmptyMacroRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("macro m {\n}\n")) {
+            XCTAssertEqual($0 as? ConfigError, ConfigError(line: 1, message: "empty macro 'm'"))
+        }
+    }
+
+    func testDuplicateMacroRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("""
+        macro m {
+            key cmd+c
+        }
+        macro m {
+            key cmd+d
+        }
+        """)) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 4, message: "duplicate macro 'm' (first defined on line 1)"))
+        }
+    }
+
+    func testUndefinedMacroRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("opt+y :: macro nope\n")) {
+            XCTAssertEqual($0 as? ConfigError, ConfigError(line: 1, message: "undefined macro 'nope'"))
+        }
+    }
+
+    func testUnclosedMacroRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("macro m {\n    key cmd+c\n")) {
+            XCTAssertEqual($0 as? ConfigError, ConfigError(line: 1, message: "unclosed macro block 'm'"))
+        }
+    }
+
+    func testBadActionRejected() {
+        XCTAssertThrowsError(try ConfigParser.parse("macro m {\n    beep 3\n}\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 2, message: "unknown macro action 'beep' (key/text/sleep/run)"))
+        }
+    }
+
+    func testSleepRange() {
+        XCTAssertThrowsError(try ConfigParser.parse("macro m {\n    sleep -1\n}\n")) {
+            XCTAssertEqual($0 as? ConfigError, ConfigError(line: 2, message: "sleep out of range 0-10000"))
+        }
+        XCTAssertThrowsError(try ConfigParser.parse("macro m {\n    sleep 10001\n}\n")) {
+            XCTAssertEqual($0 as? ConfigError, ConfigError(line: 2, message: "sleep out of range 0-10000"))
+        }
+        XCTAssertThrowsError(try ConfigParser.parse("macro m {\n    sleep x\n}\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 2, message: "sleep wants an integer millisecond count"))
+        }
+    }
+
+    func testMacroHeaderNeedsBrace() {
+        XCTAssertThrowsError(try ConfigParser.parse("macro m\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 1, message: "expected '{' at end of macro header"))
+        }
+    }
+
+    func testJunkAfterCloseBrace() {
+        XCTAssertThrowsError(try ConfigParser.parse("macro m {\n    key cmd+c\n} x\n")) {
+            XCTAssertEqual(($0 as? ConfigError)?.line, 3)
+        }
+    }
+
+    func testMacroNameValidated() {
+        XCTAssertThrowsError(try ConfigParser.parse("macro a.b {\n")) {
+            XCTAssertEqual($0 as? ConfigError,
+                ConfigError(line: 1, message: "invalid macro name 'a.b' (letters, digits, '-', '_' only)"))
+        }
+    }
 }

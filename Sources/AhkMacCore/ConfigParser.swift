@@ -13,16 +13,32 @@ public enum ConfigParser {
     public static func parse(_ text: String) throws -> Config {
         var raw = RawConfig()
         var scope = ScopeToken.global
+        var openMacro: (name: String, line: Int, steps: [MacroStep])?
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         for (index, rawLine) in lines.enumerated() {
             let lineNo = index + 1
             let line = trim(stripComment(rawLine))
             if line.isEmpty { continue }
+            if var macro = openMacro {
+                if line == "}" {
+                    guard !macro.steps.isEmpty else {
+                        throw ConfigError(line: macro.line, message: "empty macro '\(macro.name)'")
+                    }
+                    raw.macros.append(MacroDef(name: macro.name, steps: macro.steps, line: macro.line))
+                    openMacro = nil
+                } else {
+                    macro.steps.append(try parseAction(line, lineNo: lineNo))
+                    openMacro = macro
+                }
+                continue
+            }
             if line.first == "[" {
                 scope = try parseSectionHeader(line, lineNo: lineNo)
                 raw.headers.append(scope)                       // 空区块的错名也要能报出来
             } else if isKeyword(line, "apps") {
                 raw.sets.append(try parseAppsDecl(line, lineNo: lineNo))
+            } else if isKeyword(line, "macro") {
+                openMacro = try parseMacroHeader(line, lineNo: lineNo)
             } else if line.first == "\"" || line.first == "*" {
                 raw.hotstrings.append(try parseHotstring(line, lineNo: lineNo, scope: scope))
             } else if line.contains("::") {
@@ -31,6 +47,9 @@ public enum ConfigParser {
                 throw ConfigError(line: lineNo,
                     message: "unrecognized rule; expected 'chord :: chord' or '\"trigger\" => \"replacement\"'")
             }
+        }
+        if let macro = openMacro {
+            throw ConfigError(line: macro.line, message: "unclosed macro block '\(macro.name)'")
         }
         return try ConfigLinker.link(raw)
     }
@@ -41,8 +60,14 @@ public enum ConfigParser {
             throw ConfigError(line: lineNo, message: "expected exactly one '::'")
         }
         let source = try parseChord(line[..<separator.lowerBound], lineNo: lineNo)
-        let target = try parseChord(line[separator.upperBound...], lineNo: lineNo)
-        return RawKeymap(source: source, target: .chord(target), scope: scope, line: lineNo)
+        let rhs = trim(line[separator.upperBound...])
+        let target: RawTarget
+        if isKeyword(rhs, "macro") {
+            target = .macroName(try parseMacroName(rhs, lineNo: lineNo))
+        } else {
+            target = .chord(try parseChord(rhs, lineNo: lineNo))
+        }
+        return RawKeymap(source: source, target: target, scope: scope, line: lineNo)
     }
 
     static func parseHotstring(_ line: Substring, lineNo: Int, scope: ScopeToken) throws -> RawHotstring {
@@ -71,11 +96,17 @@ public enum ConfigParser {
             throw ConfigError(line: lineNo, message: "expected '=>' after trigger")
         }
         rest2 = trimLeading(rest2.dropFirst(2))
-        let (replacement, tail) = try parseQuoted(rest2, lineNo: lineNo)
-        if !trim(tail).isEmpty {
-            throw ConfigError(line: lineNo, message: "unexpected content after replacement")
+        let action: RawAction
+        if rest2.first != "\"" && isKeyword(rest2, "macro") {
+            action = .macroName(try parseMacroName(rest2, lineNo: lineNo))
+        } else {
+            let (replacement, tail) = try parseQuoted(rest2, lineNo: lineNo)
+            if !trim(tail).isEmpty {
+                throw ConfigError(line: lineNo, message: "unexpected content after replacement")
+            }
+            action = .text(replacement)
         }
-        return RawHotstring(trigger: trigger, action: .text(replacement),
+        return RawHotstring(trigger: trigger, action: action,
                              immediate: immediate, scope: scope, line: lineNo)
     }
 
@@ -134,6 +165,77 @@ public enum ConfigParser {
             ids.append(id.lowercased())
         }
         return AppsDecl(name: name, ids: ids, line: lineNo)
+    }
+
+    /// Parses a `macro <name> {` header line. `line` is already known to
+    /// start with the `macro` keyword. The name runs up to the first
+    /// whitespace or `{`; whatever remains after it must be exactly `{`.
+    static func parseMacroHeader(_ line: Substring, lineNo: Int) throws -> (name: String, line: Int, steps: [MacroStep]) {
+        let rest = trimLeading(line.dropFirst("macro".count))
+        var nameEnd = rest.startIndex
+        while nameEnd < rest.endIndex, rest[nameEnd] != " ", rest[nameEnd] != "\t", rest[nameEnd] != "{" {
+            nameEnd = rest.index(after: nameEnd)
+        }
+        let name = String(rest[..<nameEnd])
+        guard validName(name) else {
+            throw ConfigError(line: lineNo,
+                message: "invalid macro name '\(name)' (letters, digits, '-', '_' only)")
+        }
+        guard trim(rest[nameEnd...]) == "{" else {
+            throw ConfigError(line: lineNo, message: "expected '{' at end of macro header")
+        }
+        return (name: name, line: lineNo, steps: [])
+    }
+
+    /// Parses one line inside a `macro { ... }` block into a `MacroStep`.
+    static func parseAction(_ line: Substring, lineNo: Int) throws -> MacroStep {
+        let word: Substring
+        let rest: Substring
+        if let spaceIndex = line.firstIndex(where: { $0 == " " || $0 == "\t" }) {
+            word = line[..<spaceIndex]
+            rest = line[spaceIndex...]
+        } else {
+            word = line
+            rest = line[line.endIndex...]
+        }
+        switch word {
+        case "key":
+            return .key(try parseChord(rest, lineNo: lineNo))
+        case "text":
+            let (value, tail) = try parseQuoted(trimLeading(rest), lineNo: lineNo)
+            guard trim(tail).isEmpty else {
+                throw ConfigError(line: lineNo, message: "unexpected content after text")
+            }
+            return .text(value)
+        case "run":
+            let (value, tail) = try parseQuoted(trimLeading(rest), lineNo: lineNo)
+            guard trim(tail).isEmpty else {
+                throw ConfigError(line: lineNo, message: "unexpected content after run")
+            }
+            return .run(value)
+        case "sleep":
+            guard let ms = Int(trim(rest)) else {
+                throw ConfigError(line: lineNo, message: "sleep wants an integer millisecond count")
+            }
+            guard (0...10000).contains(ms) else {
+                throw ConfigError(line: lineNo, message: "sleep out of range 0-10000")
+            }
+            return .sleep(ms)
+        default:
+            throw ConfigError(line: lineNo, message: "unknown macro action '\(word)' (key/text/sleep/run)")
+        }
+    }
+
+    /// Parses a `macro <name>` reference in keymap-target or
+    /// hotstring-replacement position. `rest` is already known to start
+    /// with the `macro` keyword.
+    static func parseMacroName(_ rest: Substring, lineNo: Int) throws -> String {
+        let name = String(trim(rest.dropFirst("macro".count)))
+        guard validName(name) else {
+            throw ConfigError(line: lineNo,
+                message: "invalid macro name '\(name)' (letters, digits, '-', '_' only)")
+        }
+        return name
     }
 
     /// Set/macro names: letters, digits, '-', '_' only, non-empty.
