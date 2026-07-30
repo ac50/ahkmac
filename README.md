@@ -121,8 +121,10 @@ source :: macro name             keymap bound to a macro
 - Two rules for the same key/trigger conflict only if their scopes could
   both match the same app. Same-tier conflicts (e.g. two overlapping
   `[name]` sections) are rejected at parse time; cross-tier overrides are
-  legal and the more specific tier wins at runtime — `[bundle.id]`/`[name]`
-  beats `[!name]` beats global.
+  legal. At runtime, among rules matching the current app, the one with
+  more modifiers (or, for hotstrings, the longer trigger) wins; scope tier
+  (`[bundle.id]`/`[name]` > `[!name]` > global) only breaks ties on that —
+  a global `cmd+opt+r :: X` still beats an app-scoped `opt+r :: Y`.
 
 ### Macros
 
